@@ -42,7 +42,7 @@ PATH_RESULTS = PATH_PROJ + "/data/results"
 PCA_K = 100
 
 
-def model_create():
+def model_create(show_summary=False):
     """Create a MobileNetV2 model with top layer removed
 
     Returns:
@@ -55,6 +55,9 @@ def model_create():
         layer.trainable = False
     # Create model without top layer
     model_new = Model(inputs=model_base.input, outputs=model_base.layers[-2].output)
+    # Show summary
+    if show_summary is True:
+        print(model_new.summary())
     return model_new
 
 
@@ -104,8 +107,9 @@ def main():
     )
     spark.sparkContext.setLogLevel("ERROR")
 
-    # Creat broadcast weights
-    broadcast_weights = spark.sparkContext.broadcast(model_create().get_weights())
+    # Create broadcast weights
+    logger.info("Broadcasting the model weights...")
+    broadcast_weights = spark.sparkContext.broadcast(model_create(show_summary=True).get_weights())
 
     @F.pandas_udf("array<float>")
     def featurize_udf(content_series_iter: Iterator[pd.Series]) -> Iterator[pd.Series]:
