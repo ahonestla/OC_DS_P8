@@ -18,7 +18,7 @@ from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_i
 from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras import Model
 from pyspark.ml.feature import PCA as pyPCA
-from pyspark.ml.functions import array_to_vector
+from pyspark.ml.functions import array_to_vector, vector_to_array
 from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
 
@@ -32,10 +32,8 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 
 # Define paths
-# PATH_PROJ = "gs://bucket-openclassrooms-p8"
-# PATH_DATA = PATH_PROJ + "/data/training"
-# PATH_RESULTS = PATH_PROJ + "/data/results"
-PATH_PROJ = "/Users/victor/Documents/OPENCLASSROOMS/projet_8"
+PATH_PROJ = "gs://bucket-openclassrooms-p8"
+# PATH_PROJ = "/Users/victor/Documents/OPENCLASSROOMS/projet_8"
 PATH_DATA = PATH_PROJ + "/data/training"
 PATH_RESULTS = PATH_PROJ + "/data/results"
 
@@ -98,18 +96,13 @@ def main():
 
     # Start spark code
     logger.info("Starting spark application...")
-    spark = (
-        SparkSession.builder.appName("oc_p8")
-        .master("local")
-        .config("spark.sql.parquet.writeLegacyFormat", "true")
-        .config("spark.driver.bindAddress", "127.0.0.1")
-        .getOrCreate()
-    )
-    spark.sparkContext.setLogLevel("ERROR")
+    spark = SparkSession.builder.appName("oc_p8").master("yarn").getOrCreate()
+    sc = spark.SparkContext()
+    sc.setLogLevel("INFO")
 
     # Create broadcast weights
     logger.info("Broadcasting the model weights...")
-    broadcast_weights = spark.sparkContext.broadcast(model_create(show_summary=True).get_weights())
+    broadcast_weights = sc.broadcast(model_create(show_summary=True).get_weights())
 
     @F.pandas_udf("array<float>")
     def featurize_udf(content_series_iter: Iterator[pd.Series]) -> Iterator[pd.Series]:
@@ -158,13 +151,17 @@ def main():
     logger.info("Applying PCA with %i components...", PCA_K)
     pca = pyPCA(k=PCA_K, inputCol="features_vec", outputCol="features_pca")
     pca_model = pca.fit(features_df)
-    pca_data = pca_model.transform(features_df)
-    pca_data.show(5)
-    pca_data.printSchema()
+    features_df = pca_model.transform(features_df)
+    features_df.show(5)
+    features_df.printSchema()
     logger.info("Successfully applying PCA on features!")
 
+    # Save PCA output as single json file
+    pca_output = features_df.select(F.col("features_pca")).withColumn("features_pca", vector_to_array("features_pca"))
+    pca_output.repartition(1).write.mode("overwrite").json(PATH_RESULTS + "/PCA_output")
+
     # Save results as parquet files
-    features_df.write.mode("overwrite").parquet(PATH_RESULTS)
+    features_df.write.mode("overwrite").parquet(PATH_RESULTS + "/Features_output")
 
     # End spark code
     logger.info("Ending spark application")
