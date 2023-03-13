@@ -9,7 +9,8 @@
 
 # Import modules
 import io
-import sys, logging
+import sys
+import logging
 import numpy as np
 import pandas as pd
 from typing import Iterator
@@ -21,6 +22,7 @@ from pyspark.ml.feature import PCA as pyPCA
 from pyspark.ml.functions import array_to_vector, vector_to_array
 from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
+from pyspark import SparkContext, SparkConf
 
 # Logging configuration
 formatter = logging.Formatter("[%(asctime)s] %(levelname)s @ line %(lineno)d: %(message)s")
@@ -36,6 +38,7 @@ PATH_PROJ = "gs://bucket-openclassrooms-p8"
 # PATH_PROJ = "/Users/victor/Documents/OPENCLASSROOMS/projet_8"
 PATH_DATA = PATH_PROJ + "/data/training"
 PATH_RESULTS = PATH_PROJ + "/data/results"
+PATH_LOGS = PATH_PROJ + "/logs"
 
 PCA_K = 100
 
@@ -96,13 +99,26 @@ def main():
 
     # Start spark code
     logger.info("Starting spark application...")
-    spark = SparkSession.builder.appName("oc_p8").master("yarn").getOrCreate()
-    sc = spark.SparkContext()
-    sc.setLogLevel("INFO")
+    # spark = SparkSession.builder.appName("oc_p8").master("yarn").getOrCreate()
+    spark = (
+        SparkSession.builder.config("spark.eventLog.dir", PATH_LOGS)
+        .config("spark.history.fs.logDirectory", PATH_LOGS)
+        .getOrCreate()
+    )
+    context = spark.sparkContext
+    context.setLogLevel("INFO")
+
+    # Display spark config
+    conf = context.getConf()
+    config_items = conf.getAll()
+    logger.info("Spark application started with following configuration :")
+    print("spark.executor.cores:", conf.get("spark.executor.cores"))
+    print("spark.executor.instances:", conf.get("spark.executor.instances"))
+    [print(item) for item in config_items]
 
     # Create broadcast weights
     logger.info("Broadcasting the model weights...")
-    broadcast_weights = sc.broadcast(model_create(show_summary=True).get_weights())
+    broadcast_weights = context.broadcast(model_create(show_summary=True).get_weights())
 
     @F.pandas_udf("array<float>")
     def featurize_udf(content_series_iter: Iterator[pd.Series]) -> Iterator[pd.Series]:
