@@ -36,11 +36,12 @@ logger.addHandler(handler)
 # Define paths
 PATH_PROJ = "gs://bucket-openclassrooms-p8"
 # PATH_PROJ = "/Users/victor/Documents/OPENCLASSROOMS/projet_8"
-PATH_DATA = PATH_PROJ + "/data/training"
+PATH_DATA = PATH_PROJ + "/data/test"
 PATH_RESULTS = PATH_PROJ + "/data/results"
 PATH_LOGS = PATH_PROJ + "/logs"
 
-PCA_K = 100
+SELECT_RATIO = 1.0
+PCA_K = 166
 
 
 def model_create(show_summary=False):
@@ -153,11 +154,13 @@ def main():
     images.printSchema()
     logger.info("Successfully loaded %i images!", images.count())
 
+    # Select sample of the dataset
+    images = images.sample(fraction=SELECT_RATIO, seed=42)
+    logger.info("Select %i%% of images : %i", SELECT_RATIO * 100, images.count())
+
     # Create the image features
     logger.info("Featurizing the images...")
-    features_df = images.repartition(20).select(
-        F.col("path"), F.col("label"), featurize_udf("content").alias("features")
-    )
+    features_df = images.select(F.col("path"), F.col("label"), featurize_udf("content").alias("features"))
     features_df = features_df.withColumn("features_vec", array_to_vector("features"))
     features_df.show(5)
     features_df.printSchema()
@@ -170,16 +173,20 @@ def main():
     features_df = pca_model.transform(features_df)
     features_df.show(5)
     features_df.printSchema()
-    logger.info("Successfully applying PCA on features!")
+    logger.info("Successfully applied PCA on features!")
+    logger.info("Explained variance : %d", sum(pca_model.explainedVariance))
 
     # Save PCA output as single json file
+    logger.info("Exporting PCA features as single JSON file...")
     pca_output = features_df.select(F.col("features_pca")).withColumn("features_pca", vector_to_array("features_pca"))
     pca_output.repartition(1).write.mode("overwrite").json(PATH_RESULTS + "/PCA_output")
 
     # Save results as parquet files
+    logger.info("Exporting all features as parquets...")
     features_df.write.mode("overwrite").parquet(PATH_RESULTS + "/Features_output")
 
     # End spark code
+    logger.info("Successfully exported results!")
     logger.info("Ending spark application")
     spark.stop()
     return None
