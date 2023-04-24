@@ -1,4 +1,4 @@
-## 🛍️ Classification of fruits images
+## 🍓 Classification of fruits images
 OPENCLASSROOMS - Data Scientist - Project 8
 
 This repository contains files for a Big Data project that featurize images with a MobileNetV2 model using Google Cloud Platform.
